@@ -2435,6 +2435,7 @@ function shQuote(s) {
 }
 function buildCommand(userCommand, { checkout, cwd }) {
   if (!checkout) return userCommand;
+  const delim = heredocDelimiter(userCommand);
   return [
     "set -e",
     `mkdir -p ${REPO_DIR} && cd ${REPO_DIR}`,
@@ -2449,10 +2450,21 @@ function buildCommand(userCommand, { checkout, cwd }) {
     'tar -xzf "$f" --strip-components=1 && rm -f "$f"',
     "unset WBX_GH_TOKEN u f; set --",
     `cd ${shQuote(cwd)}`,
-    "set +e",
-    "# --- command ---",
-    userCommand
+    // příkaz uživatele v NOVÉM procesu: /proc/<pid>/environ ukazuje prostředí, se kterým proces
+    // vznikl – po pouhém unset by token šel přečíst z /proc/$$/environ (resp. $PPID)
+    'c="${TMPDIR:-/tmp}/wbx-command-$$.sh"',
+    `cat > "$c" <<'${delim}'`,
+    userCommand,
+    delim,
+    'exec /bin/sh "$c"'
   ].join("\n");
+}
+function heredocDelimiter(text) {
+  const lines = new Set(String(text).split(/\r?\n/));
+  for (; ; ) {
+    const d = `WBX_COMMAND_${(0, import_node_crypto.randomBytes)(8).toString("hex")}`;
+    if (!lines.has(d)) return d;
+  }
 }
 function idempotencyKey(env2) {
   const parts = [env2.GITHUB_REPOSITORY, env2.GITHUB_RUN_ID, env2.GITHUB_RUN_ATTEMPT, env2.GITHUB_JOB, env2.GITHUB_ACTION];

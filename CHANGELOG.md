@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3 – 2026-11-22
+
+- Security: with `checkout`, your command now runs in a new process, so the GitHub token used for the download cannot be read from the process environment (`/proc/<pid>/environ`) any more. Previously it was removed only from the shell variables.
+
 ## 1.0.2 – 2026-11-22
 
 - The result directory and the `artifacts-path` output are created at the start, so later steps with `if: always()` (for example `actions/upload-artifact`) work even when the job could not be started; `status` is then `not_started`.
