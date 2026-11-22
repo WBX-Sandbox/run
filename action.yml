@@ -1,0 +1,90 @@
+name: WBX Sandbox Run
+description: Run a command from your workflow in an isolated WBX Sandbox microVM in the EU – with a price limit, logs, result files and a signed execution receipt.
+author: WBX Sandbox
+branding:
+  icon: box
+  color: blue
+
+inputs:
+  api-key:
+    description: WBX Sandbox API key. Store it as a secret, e.g. `secrets.WBXSANDBOX_API_KEY`.
+    required: true
+  command:
+    description: Shell command to run (`/bin/sh -c`). Multi-line is fine.
+    required: true
+  template:
+    description: Sandbox template, e.g. `base`, `node`, `go`, `rust`, `ubuntu`, `browser`, `code-interpreter`.
+    required: false
+    default: base
+  timeout:
+    description: Time limit in seconds (up to 86400).
+    required: false
+    default: "1800"
+  max-cost:
+    description: Price limit in your account's billing currency, e.g. `"0.20"`. A job that could cost more is not started.
+    required: false
+  compute-class:
+    description: Compute class (`economy`, `balanced`, `performance`, `memory`). Default = your account's default.
+    required: false
+  checkout:
+    description: Download this repository at the workflow's commit into the sandbox and run the command there.
+    required: false
+    default: "true"
+  github-token:
+    description: Token used only to download the repository (`checkout`). It is removed before your command starts and never stored.
+    required: false
+    default: ${{ github.token }}
+  working-directory:
+    description: Directory inside the repository to run the command in.
+    required: false
+    default: .
+  env:
+    description: Environment variables for the command, one `NAME=value` per line. Values are never stored with the job.
+    required: false
+  network:
+    description: "`full` (default), `allowlist` (only `allow`) or `none`. With `checkout`, GitHub's download hosts are allowed automatically."
+    required: false
+    default: full
+  allow:
+    description: Domains or addresses reachable in `allowlist` mode, separated by commas or new lines.
+    required: false
+  artifacts:
+    description: Result files to keep and download, glob patterns relative to the working directory (one per line), e.g. `dist/**` or `report.xml`.
+    required: false
+  artifacts-path:
+    description: Local directory where result files and the receipt are written.
+    required: false
+    default: wbx-artifacts
+  receipt:
+    description: Save the signed execution receipt as `receipt.json` in `artifacts-path`.
+    required: false
+    default: "true"
+  fail-on-error:
+    description: Fail the step when the job does not complete with exit code 0.
+    required: false
+    default: "true"
+  api-url:
+    description: API address (default https://sandbox.wbx.cz).
+    required: false
+
+outputs:
+  job-id:
+    description: ID of the WBX Sandbox job.
+  status:
+    description: Final job status (`completed`, `failed`, `expired`, `cancelled`).
+  exit-code:
+    description: Exit code of the command.
+  cost:
+    description: Cost of the job (decimal amount).
+  currency:
+    description: Currency of the cost.
+  artifacts-path:
+    description: Directory with the downloaded result files.
+  receipt-path:
+    description: Path of the signed execution receipt (empty when not saved).
+  job-url:
+    description: Link to the job in the WBX Sandbox portal.
+
+runs:
+  using: node24
+  main: dist/index.js
