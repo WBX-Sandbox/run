@@ -1,5 +1,5 @@
 name: WBX Sandbox Run
-description: Run a command in an isolated WBX Sandbox microVM in the EU – with a price limit, live log, result files and signed receipt.
+description: Run a command in an isolated WBX Sandbox microVM in the EU with a price limit, live log, result files and a signed receipt.
 author: WBX Sandbox
 branding:
   icon: box
