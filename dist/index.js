@@ -2657,7 +2657,7 @@ run().catch((e) => {
   let msg = e?.message || String(e);
   if (e instanceof APIError) {
     msg = `WBX API ${e.status}${e.code ? ` ${e.code}` : ""}: ${msg}`;
-    if (e.code === "budget_too_low") msg += " \u2013 raise max-cost or lower timeout (the price limit must cover the worst case: timeout + ~7 min)";
+    if (e.code === "budget_too_low" && !/raise/i.test(msg)) msg += " \u2013 raise max-cost or lower timeout (the price limit must cover the worst case: timeout + ~7 min)";
   }
   cmd("error", msg);
   process.exitCode = 1;
