@@ -71,7 +71,7 @@ outputs:
   job-id:
     description: ID of the WBX Sandbox job.
   status:
-    description: Final job status (`completed`, `failed`, `expired`, `cancelled`).
+    description: Final job status (`completed`, `failed`, `expired`, `cancelled`), or `not_started` when the job was not created.
   exit-code:
     description: Exit code of the command.
   cost:

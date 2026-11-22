@@ -2523,7 +2523,12 @@ var mask = (v) => v && say(`::add-mask::${v}`);
 var setOutput = (name, value) => {
   if (env.GITHUB_OUTPUT) (0, import_node_fs.appendFileSync)(env.GITHUB_OUTPUT, outputLine(name, value));
 };
+var started = false;
 async function run() {
+  const outDir = (0, import_node_path.resolve)(env.GITHUB_WORKSPACE || process.cwd(), getInput(env, "artifacts-path") || "wbx-artifacts");
+  (0, import_node_fs.mkdirSync)(outDir, { recursive: true });
+  setOutput("artifacts-path", outDir);
+  setOutput("receipt-path", "");
   const apiKey = getInput(env, "api-key", { required: true });
   mask(apiKey);
   const userCommand = getInput(env, "command", { required: true, trim: false }).replace(/\s+$/, "");
@@ -2536,7 +2541,6 @@ async function run() {
   for (const v of Object.values(userEnv)) if (v.length >= 4) mask(v);
   const network = networkFor(getInput(env, "network"), parseList(getInput(env, "allow")), checkout);
   const artifacts = parseList(getInput(env, "artifacts").replace(/,/g, "\n"));
-  const outDir = (0, import_node_path.resolve)(env.GITHUB_WORKSPACE || process.cwd(), getInput(env, "artifacts-path") || "wbx-artifacts");
   const wantReceipt = getBool(env, "receipt", true);
   const failOnError = getBool(env, "fail-on-error", true);
   const timeout = Number(getInput(env, "timeout") || 1800);
@@ -2571,6 +2575,7 @@ async function run() {
   };
   cmd("group", "WBX Sandbox: starting job");
   const job = await wbx.jobs.create(params);
+  started = true;
   const url = jobUrl(apiUrl || env.WBXSANDBOX_URL, job.id);
   say(`job ${job.id} (${params.template}, timeout ${timeout} s${maxCost ? `, price limit ${maxCost}` : ""})`);
   say(url);
@@ -2595,7 +2600,6 @@ workflow cancelled \u2013 cancelling WBX job ${job.id}`);
   for await (const text of job.follow({ pollIntervalMs: 2e3 })) process.stdout.write(text);
   await job.wait();
   const d = job.data;
-  (0, import_node_fs.mkdirSync)(outDir, { recursive: true });
   let saved = [];
   if (artifacts.length && !d.artifacts_purged) {
     const list = await job.artifacts();
@@ -2631,7 +2635,6 @@ workflow cancelled \u2013 cancelling WBX job ${job.id}`);
   setOutput("exit-code", d.exit_code ?? "");
   setOutput("cost", d.cost?.amount ?? "");
   setOutput("currency", d.cost?.currency ?? "");
-  setOutput("artifacts-path", outDir);
   setOutput("receipt-path", receiptPath);
   const ok = d.status === "completed" && (d.exit_code ?? 0) === 0;
   const costText = d.cost ? `, cost ${d.cost.amount} ${d.cost.currency}` : "";
@@ -2650,6 +2653,7 @@ WBX job ${job.id} completed${costText}`);
   }
 }
 run().catch((e) => {
+  if (!started) setOutput("status", "not_started");
   let msg = e?.message || String(e);
   if (e instanceof APIError) {
     msg = `WBX API ${e.status}${e.code ? ` ${e.code}` : ""}: ${msg}`;

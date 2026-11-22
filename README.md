@@ -8,7 +8,7 @@ Run a command from your GitHub workflow in an isolated **WBX Sandbox** microVM (
     api-key: ${{ secrets.WBXSANDBOX_API_KEY }}
     template: node
     command: npm ci && npm test
-    max-cost: "0.20"   # in your billing currency – for CZK e.g. "1.50"
+    max-cost: "0.20"   # in your billing currency – for CZK use "1.50"
 ```
 
 The action downloads your repository at the workflow's commit into the sandbox, runs the command there and streams the log into the step. The step fails when the command fails.
@@ -104,6 +104,8 @@ jobs:
 ## Outputs
 
 `job-id`, `status`, `exit-code`, `cost`, `currency`, `artifacts-path`, `receipt-path`, `job-url`.
+
+`artifacts-path` is set and the directory exists even when the job could not be started (for example a price limit below the worst case) – `status` is then `not_started` – so later steps with `if: always()` keep working.
 
 The step summary shows the status, run time, cost, the number of result files and a short log summary (test results and errors).
 
