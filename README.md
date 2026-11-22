@@ -1,6 +1,6 @@
 # WBX Sandbox Run
 
-Run a command from your GitHub workflow in an isolated **WBX Sandbox** microVM (Firecracker) on servers in the EU – with a **price limit checked before it starts**, the live log in your workflow, result files downloaded back, and a **signed execution receipt**.
+Run a command from your GitHub workflow in an isolated **WBX Sandbox** microVM (Firecracker) on servers in Europe – with a **price limit checked before it starts**, the live log in your workflow, result files downloaded back, and a **signed execution receipt**.
 
 ```yaml
 - uses: WBX-Sandbox/run@v1

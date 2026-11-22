@@ -3,6 +3,7 @@
 ## 1.0.2 – 2026-11-22
 
 - The result directory and the `artifacts-path` output are created at the start, so later steps with `if: always()` (for example `actions/upload-artifact`) work even when the job could not be started; `status` is then `not_started`.
+- Clearer error message when the price limit is too low.
 
 ## 1.0.1 – 2026-11-22
 
