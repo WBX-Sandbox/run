@@ -90,7 +90,7 @@ jobs:
 | `max-cost` | – | Price limit in your billing currency, e.g. `"0.20"`. It must cover the worst case: timeout + about 7 minutes for start and result upload. |
 | `compute-class` | account default | `economy`, `balanced`, `performance`, `memory`. |
 | `checkout` | `true` | Download this repository at the workflow's commit and run in it. |
-| `github-token` | `github.token` | Used only for the download; removed before your command starts and never stored. |
+| `github-token` | `github.token` | Used only to download a **private** repository (public ones are downloaded without it). Never stored by WBX Sandbox, but processes in the sandbox can read it while the job runs – the same as `actions/checkout`, which keeps it in `.git/config`. Give the workflow `permissions: contents: read`. |
 | `working-directory` | `.` | Directory inside the repository. |
 | `env` | – | `NAME=value` per line. Values are masked in the log and never stored with the job. |
 | `network` | `full` | `full`, `allowlist` or `none`. With `checkout`, GitHub's download hosts are added to the allowlist automatically; `none` needs `checkout: false`. |

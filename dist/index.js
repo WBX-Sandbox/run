@@ -2373,6 +2373,12 @@ var WBX = class {
 // src/lib.mjs
 var import_node_crypto = require("node:crypto");
 var GITHUB_DOWNLOAD_HOSTS = ["api.github.com", "codeload.github.com"];
+function isPublicRepo(event) {
+  const r = event && typeof event === "object" ? event.repository : null;
+  if (!r || typeof r !== "object") return false;
+  if (r.private === false) return true;
+  return r.visibility === "public" && r.private !== true;
+}
 var REPO_DIR = "/home/user/repo";
 function getInput(env2, name, { required = false, trim = true } = {}) {
   const key = `INPUT_${name.replace(/ /g, "_").toUpperCase()}`;
@@ -2529,6 +2535,14 @@ function summaryMarkdown({ job, url, digest, artifacts, receiptPath }) {
 
 // src/main.mjs
 var env = process.env;
+function readEvent(e) {
+  if (!e.GITHUB_EVENT_PATH) return null;
+  try {
+    return JSON.parse((0, import_node_fs.readFileSync)(e.GITHUB_EVENT_PATH, "utf8"));
+  } catch {
+    return null;
+  }
+}
 var say = (s) => process.stdout.write(s.endsWith("\n") ? s : s + "\n");
 var cmd = (name, msg, props = "") => say(`::${name}${props}::${String(msg).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}`);
 var mask = (v) => v && say(`::add-mask::${v}`);
@@ -2546,8 +2560,8 @@ async function run() {
   const userCommand = getInput(env, "command", { required: true, trim: false }).replace(/\s+$/, "");
   if (!userCommand.trim()) throw new Error("Input required and not supplied: command");
   const checkout = getBool(env, "checkout", true);
-  const ghToken = getInput(env, "github-token");
-  mask(ghToken);
+  const ghToken = isPublicRepo(readEvent(env)) ? "" : getInput(env, "github-token");
+  mask(getInput(env, "github-token"));
   const cwd = workDir(getInput(env, "working-directory") || ".");
   const userEnv = parseEnv(getInput(env, "env", { trim: false }));
   for (const v of Object.values(userEnv)) if (v.length >= 4) mask(v);

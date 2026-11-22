@@ -31,7 +31,7 @@ inputs:
     required: false
     default: "true"
   github-token:
-    description: Token used only to download the repository (`checkout`). It is removed before your command starts and never stored.
+    description: Token used only to download a private repository (`checkout`); public repositories are downloaded without it. Not stored, but readable by processes in the sandbox while the job runs.
     required: false
     default: ${{ github.token }}
   working-directory:

@@ -2,7 +2,8 @@
 
 ## 1.0.3 – 2026-11-22
 
-- Security: with `checkout`, your command now runs in a new process, so the GitHub token used for the download cannot be read from the process environment (`/proc/<pid>/environ`) any more. Previously it was removed only from the shell variables.
+- Security: the GitHub token is no longer sent to the job for public repositories (they are downloaded without it). For private repositories the token is still needed for the download; the documentation now says plainly that processes in the sandbox can read it while the job runs (as with `actions/checkout`), and recommends `permissions: contents: read`.
+- With `checkout`, your command runs in a new process after the download.
 
 ## 1.0.2 – 2026-11-22
 
