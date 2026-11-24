@@ -1,6 +1,7 @@
 // src/main.mjs
-var import_node_fs = require("node:fs");
-var import_node_path = require("node:path");
+var import_node_crypto2 = require("node:crypto");
+var import_node_fs2 = require("node:fs");
+var import_node_path2 = require("node:path");
 
 // ../../sdk/typescript/src/util.ts
 function readEnv(name) {
@@ -502,7 +503,7 @@ var Transport = class {
       const link = linkSignal(opts.signal, timeoutMs);
       let resp;
       try {
-        const init = { method, headers, signal: link.signal };
+        const init = { method, headers, signal: link.signal, redirect: "manual" };
         if (body !== void 0) init.body = body;
         if (typeof ReadableStream !== "undefined" && body instanceof ReadableStream) init.duplex = "half";
         resp = await cfg.fetch(url, init);
@@ -515,6 +516,13 @@ var Transport = class {
           continue;
         }
         throw err2;
+      }
+      if (resp.type === "opaqueredirect" || resp.status >= 300 && resp.status < 400) {
+        link.release();
+        const to = resp.headers.get("location");
+        throw new ConnectionError(
+          `${method} ${spec.path}: the server at ${cfg.baseURL} answered with a redirect${to ? ` to ${to}` : ""} \u2013 redirects are not followed so the API key is never sent to another address; set the API address to the final one`
+        );
       }
       if (resp.ok) {
         return {
@@ -2277,6 +2285,21 @@ function enc(id) {
 
 // ../../sdk/typescript/src/client.ts
 var DEFAULT_BASE_URL = "https://sandbox.wbx.cz";
+function checkBaseURL(raw, allowInsecure = false) {
+  const base = raw.replace(/\/+$/, "");
+  let u;
+  try {
+    u = new URL(base);
+  } catch {
+    throw new TypeError(`invalid API address "${base}"`);
+  }
+  if (u.protocol === "https:") return base;
+  const local = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(u.hostname);
+  if (u.protocol === "http:" && (local || allowInsecure)) return base;
+  throw new TypeError(
+    `refusing to use "${base}": the API key would be sent unencrypted \u2013 use an https:// address (or pass allowInsecure: true for a trusted network)`
+  );
+}
 var WBX = class {
   /** Sandboxes: create, get, list, kill. */
   sandboxes;
@@ -2302,7 +2325,7 @@ var WBX = class {
       throw new TypeError("no fetch implementation found \u2013 use Node.js 20 or newer, or pass { fetch }");
     }
     this.transport = new Transport({
-      baseURL: (options.baseURL ?? readEnv("WBXSANDBOX_URL") ?? DEFAULT_BASE_URL).replace(/\/+$/, ""),
+      baseURL: checkBaseURL(options.baseURL ?? readEnv("WBXSANDBOX_URL") ?? DEFAULT_BASE_URL, options.allowInsecure),
       apiKey: options.apiKey ?? readEnv("WBXSANDBOX_API_KEY") ?? "",
       timeoutMs: options.timeoutMs ?? 6e4,
       maxRetries: options.maxRetries ?? 2,
@@ -2372,6 +2395,8 @@ var WBX = class {
 
 // src/lib.mjs
 var import_node_crypto = require("node:crypto");
+var import_node_fs = require("node:fs");
+var import_node_path = require("node:path");
 var GITHUB_DOWNLOAD_HOSTS = ["api.github.com", "codeload.github.com"];
 function isPublicRepo(event) {
   const r = event && typeof event === "object" ? event.repository : null;
@@ -2472,10 +2497,16 @@ function heredocDelimiter(text) {
     if (!lines.has(d)) return d;
   }
 }
-function idempotencyKey(env2) {
+function idempotencyKey(env2, request, secret) {
   const parts = [env2.GITHUB_REPOSITORY, env2.GITHUB_RUN_ID, env2.GITHUB_RUN_ATTEMPT, env2.GITHUB_JOB, env2.GITHUB_ACTION];
-  if (parts.every(Boolean)) return `gha-${parts.join("-")}`.replace(/[^A-Za-z0-9._:-]/g, "_").slice(0, 200);
-  return `gha-${(0, import_node_crypto.randomBytes)(12).toString("hex")}`;
+  if (!parts.every(Boolean)) return `gha-${(0, import_node_crypto.randomBytes)(12).toString("hex")}`;
+  const h = (0, import_node_crypto.createHmac)("sha256", String(secret ?? "")).update(JSON.stringify([parts, canonical(request ?? null)])).digest("hex").slice(0, 32);
+  return `gha-${env2.GITHUB_RUN_ID}-${env2.GITHUB_RUN_ATTEMPT}-${h}`.replace(/[^A-Za-z0-9._:-]/g, "_").slice(0, 200);
+}
+function canonical(v) {
+  if (Array.isArray(v)) return v.map(canonical);
+  if (v && typeof v === "object") return Object.fromEntries(Object.keys(v).sort().filter((k) => v[k] !== void 0).map((k) => [k, canonical(v[k])]));
+  return v;
 }
 function metadataFor(env2) {
   const m = {
@@ -2505,6 +2536,33 @@ function artifactPath(name) {
   if (!parts.length) throw new Error(`invalid artifact name "${name}"`);
   return parts.join("/");
 }
+function writeInside(root, rel, data) {
+  const st = (0, import_node_fs.lstatSync)(root);
+  if (st.isSymbolicLink() || !st.isDirectory()) throw new Error(`${root} is not a plain directory (symlinks are not followed)`);
+  const parts = artifactPath(rel).split("/");
+  let dir = root;
+  for (const p of parts.slice(0, -1)) {
+    dir = (0, import_node_path.join)(dir, p);
+    let s;
+    try {
+      s = (0, import_node_fs.lstatSync)(dir);
+    } catch (e) {
+      if (e.code !== "ENOENT") throw e;
+      (0, import_node_fs.mkdirSync)(dir);
+      s = (0, import_node_fs.lstatSync)(dir);
+    }
+    if (s.isSymbolicLink() || !s.isDirectory()) throw new Error(`${dir} is not a plain directory (symlinks are not followed)`);
+  }
+  const dest = (0, import_node_path.join)(dir, parts[parts.length - 1]);
+  const fd = (0, import_node_fs.openSync)(dest, import_node_fs.constants.O_WRONLY | import_node_fs.constants.O_CREAT | import_node_fs.constants.O_TRUNC | import_node_fs.constants.O_NOFOLLOW, 420);
+  try {
+    const buf = typeof data === "string" ? Buffer.from(data) : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    for (let off = 0; off < buf.length; ) off += (0, import_node_fs.writeSync)(fd, buf, off);
+  } finally {
+    (0, import_node_fs.closeSync)(fd);
+  }
+  return dest;
+}
 function jobUrl(apiUrl, id) {
   const base = (apiUrl || "https://sandbox.wbx.cz").replace(/\/+$/, "").replace(/\/v1$/, "");
   return `${base}/jobs/${id}`;
@@ -2528,7 +2586,9 @@ function summaryMarkdown({ job, url, digest, artifacts, receiptPath }) {
   if (receiptPath) lines.push(`| Signed receipt | \`${receiptPath}\` |`);
   lines.push(`| Details | [open in WBX Sandbox](${url}) |`);
   if (digest?.text) {
-    lines.push("", "<details><summary>Log summary</summary>", "", "```", digest.text.slice(0, 6e4), "```", "", "</details>");
+    const text = digest.text.slice(0, 6e4);
+    const fence = "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+    lines.push("", "<details><summary>Log summary</summary>", "", fence + "text", text, fence, "", "</details>");
   }
   return lines.join("\n") + "\n";
 }
@@ -2538,7 +2598,7 @@ var env = process.env;
 function readEvent(e) {
   if (!e.GITHUB_EVENT_PATH) return null;
   try {
-    return JSON.parse((0, import_node_fs.readFileSync)(e.GITHUB_EVENT_PATH, "utf8"));
+    return JSON.parse((0, import_node_fs2.readFileSync)(e.GITHUB_EVENT_PATH, "utf8"));
   } catch {
     return null;
   }
@@ -2547,12 +2607,38 @@ var say = (s) => process.stdout.write(s.endsWith("\n") ? s : s + "\n");
 var cmd = (name, msg, props = "") => say(`::${name}${props}::${String(msg).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}`);
 var mask = (v) => v && say(`::add-mask::${v}`);
 var setOutput = (name, value) => {
-  if (env.GITHUB_OUTPUT) (0, import_node_fs.appendFileSync)(env.GITHUB_OUTPUT, outputLine(name, value));
+  if (env.GITHUB_OUTPUT) (0, import_node_fs2.appendFileSync)(env.GITHUB_OUTPUT, outputLine(name, value));
 };
 var started = false;
+var currentJob = null;
+var resumeToken = "";
+function stopCommands() {
+  resumeToken = (0, import_node_crypto2.randomBytes)(16).toString("hex");
+  say(`::stop-commands::${resumeToken}`);
+}
+function resumeCommands() {
+  if (!resumeToken) return;
+  process.stdout.write(`
+::${resumeToken}::
+`);
+  resumeToken = "";
+}
+var sleep2 = (ms) => new Promise((r) => setTimeout(r, ms));
+var transient = (e) => !(e instanceof APIError) || e.status >= 500 || e.status === 429 || e.status === 408;
+async function patiently(fn) {
+  const until = Date.now() + 10 * 6e4;
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!transient(e) || Date.now() > until) throw e;
+      await sleep2(Math.min(3e4, 1e3 * 2 ** i));
+    }
+  }
+}
 async function run() {
-  const outDir = (0, import_node_path.resolve)(env.GITHUB_WORKSPACE || process.cwd(), getInput(env, "artifacts-path") || "wbx-artifacts");
-  (0, import_node_fs.mkdirSync)(outDir, { recursive: true });
+  const outDir = (0, import_node_path2.resolve)(env.GITHUB_WORKSPACE || process.cwd(), getInput(env, "artifacts-path") || "wbx-artifacts");
+  (0, import_node_fs2.mkdirSync)(outDir, { recursive: true });
   setOutput("artifacts-path", outDir);
   setOutput("receipt-path", "");
   const apiKey = getInput(env, "api-key", { required: true });
@@ -2596,12 +2682,13 @@ async function run() {
     network,
     metadata: metadataFor(env),
     maxCost: maxCost || void 0,
-    computeClass: getInput(env, "compute-class") || void 0,
-    idempotencyKey: idempotencyKey(env)
+    computeClass: getInput(env, "compute-class") || void 0
   };
+  params.idempotencyKey = idempotencyKey(env, params, apiKey);
   cmd("group", "WBX Sandbox: starting job");
   const job = await wbx.jobs.create(params);
   started = true;
+  currentJob = job;
   const url = jobUrl(apiUrl || env.WBXSANDBOX_URL, job.id);
   say(`job ${job.id} (${params.template}, timeout ${timeout} s${maxCost ? `, price limit ${maxCost}` : ""})`);
   say(url);
@@ -2612,6 +2699,7 @@ async function run() {
   const onCancel = async () => {
     if (cancelling) return;
     cancelling = true;
+    resumeCommands();
     say(`
 workflow cancelled \u2013 cancelling WBX job ${job.id}`);
     try {
@@ -2623,18 +2711,24 @@ workflow cancelled \u2013 cancelling WBX job ${job.id}`);
   };
   process.on("SIGINT", onCancel);
   process.on("SIGTERM", onCancel);
-  for await (const text of job.follow({ pollIntervalMs: 2e3 })) process.stdout.write(text);
-  await job.wait();
+  stopCommands();
+  let off = 0;
+  for (; ; ) {
+    const c = await patiently(() => job.logs({ offset: off }));
+    if (c.data) process.stdout.write(c.data);
+    off = c.next_offset;
+    if (c.complete) break;
+    if (!c.data) await sleep2(2e3);
+  }
+  resumeCommands();
+  await patiently(() => job.wait());
   const d = job.data;
   let saved = [];
   if (artifacts.length && !d.artifacts_purged) {
     const list = await job.artifacts();
     for (const a of list.artifacts) {
       const rel = artifactPath(artPrefix && a.name.startsWith(artPrefix) ? a.name.slice(artPrefix.length) : a.name);
-      const dest = (0, import_node_path.join)(outDir, rel);
-      if (!dest.startsWith(outDir + "/")) continue;
-      (0, import_node_fs.mkdirSync)((0, import_node_path.dirname)(dest), { recursive: true });
-      (0, import_node_fs.writeFileSync)(dest, await job.download(a.name));
+      writeInside(outDir, rel, await job.download(a.name));
       saved.push(rel);
     }
     if (list.skipped?.length) cmd("warning", `result files not kept (limits): ${list.skipped.join(", ")}`);
@@ -2644,8 +2738,7 @@ workflow cancelled \u2013 cancelling WBX job ${job.id}`);
   if (wantReceipt) {
     try {
       const r = await job.signedReceipt();
-      receiptPath = (0, import_node_path.join)(outDir, "receipt.json");
-      (0, import_node_fs.writeFileSync)(receiptPath, JSON.stringify(r, null, 2) + "\n");
+      receiptPath = writeInside(outDir, "receipt.json", JSON.stringify(r, null, 2) + "\n");
     } catch (e) {
       cmd("warning", `signed receipt not available: ${e.message}`);
     }
@@ -2656,7 +2749,7 @@ workflow cancelled \u2013 cancelling WBX job ${job.id}`);
   } catch {
     digest = void 0;
   }
-  if (env.GITHUB_STEP_SUMMARY) (0, import_node_fs.appendFileSync)(env.GITHUB_STEP_SUMMARY, summaryMarkdown({ job, url, digest, artifacts: saved, receiptPath }));
+  if (env.GITHUB_STEP_SUMMARY) (0, import_node_fs2.appendFileSync)(env.GITHUB_STEP_SUMMARY, summaryMarkdown({ job, url, digest, artifacts: saved, receiptPath }));
   setOutput("status", d.status);
   setOutput("exit-code", d.exit_code ?? "");
   setOutput("cost", d.cost?.amount ?? "");
@@ -2678,8 +2771,17 @@ WBX job ${job.id} completed${costText}`);
     cmd("warning", msg);
   }
 }
-run().catch((e) => {
+run().catch(async (e) => {
+  resumeCommands();
   if (!started) setOutput("status", "not_started");
+  if (currentJob && !currentJob.done) {
+    try {
+      await currentJob.cancel();
+      say(`WBX job ${currentJob.id} cancelled because the action failed`);
+    } catch (c) {
+      cmd("warning", `could not cancel job ${currentJob.id}: ${c.message}`);
+    }
+  }
   let msg = e?.message || String(e);
   if (e instanceof APIError) {
     msg = `WBX API ${e.status}${e.code ? ` ${e.code}` : ""}: ${msg.replace(/^\d{3}\s+/, "")}`;
